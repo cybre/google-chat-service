@@ -27,7 +27,7 @@ func main() {
 	}
 	defer wd.Quit()
 
-	wd.SetImplicitWaitTimeout(30 * time.Second)
+	wd.SetImplicitWaitTimeout(15 * time.Second)
 
 	// Navigate to Google Chat
 	if err := wd.Get("https://chat.google.com"); err != nil {
@@ -43,61 +43,26 @@ func main() {
 	if !ok {
 		log.Fatal("Could not find USER_EMAIL in env")
 	}
-	if err = emailInput.SendKeys(email); err != nil {
+	if err = emailInput.SendKeys(email + selenium.EnterKey); err != nil {
 		log.Fatalf("Could not enter email: %v", err)
 	}
-	if err = emailInput.SendKeys(selenium.EnterKey); err != nil {
-		log.Fatalf("Could not submit email: %v", err)
-	}
 
-	// Wait for password input to appear
-	var passwordInput selenium.WebElement
-	if err = wd.WaitWithTimeoutAndInterval(func(wd selenium.WebDriver) (bool, error) {
-		passwordInput, err = wd.FindElement(selenium.ByCSSSelector, "input[name=password]")
-		if err != nil {
-			return false, err
-		}
-		displayed, err := passwordInput.IsDisplayed()
-		if err != nil {
-			return false, err
-		}
-		return displayed, nil
-	}, 30*time.Second, 1*time.Second); err != nil {
-		log.Fatalf("Error waiting for password input: %v", err)
+	passwordInput, err := wd.FindElement(selenium.ByCSSSelector, "input[name=password]")
+	if err != nil {
+		log.Fatalf("Could not find password input: %v", err)
 	}
-
 	password, ok := os.LookupEnv("USER_PASSWORD")
 	if !ok {
 		log.Fatal("Could not find USER_PASSWORD in env")
 	}
-	if err = passwordInput.SendKeys(password); err != nil {
+	if err = passwordInput.SendKeys(password + selenium.EnterKey); err != nil {
 		log.Fatalf("Could not enter password: %v", err)
 	}
-	if err = passwordInput.SendKeys(selenium.EnterKey); err != nil {
-		log.Fatalf("Could not submit password: %v", err)
-	}
 
-	// Wait for navigation to occur and search input to be available
-	var searchInput selenium.WebElement
-	if err = wd.WaitWithTimeoutAndInterval(func(wd selenium.WebDriver) (bool, error) {
-		searchInput, err = wd.FindElement(selenium.ByCSSSelector, "input[name=q]")
-		if err != nil {
-			return false, err
-		}
-		displayed, err := searchInput.IsDisplayed()
-		if err != nil {
-			return false, err
-		}
-		return displayed, nil
-	}, 60*time.Second, 2*time.Second); err != nil {
-		log.Fatalf("Error waiting for search input: %v", err)
-	}
-
-	url, err := wd.CurrentURL()
+	searchInput, err := wd.FindElement(selenium.ByCSSSelector, "input[name=q]")
 	if err != nil {
-		log.Fatalf("Could not get current url: %v", err)
+		log.Fatalf("Could not find search input: %v", err)
 	}
-	fmt.Printf("url: %v\n", url)
 
 	// Connect to RabbitMQ
 	rabbitMQHost, ok := os.LookupEnv("RABBITMQ_HOST")
@@ -110,6 +75,7 @@ func main() {
 	}
 	defer conn.Close()
 
+	// Open MQ channel
 	ch, err := conn.Channel()
 	if err != nil {
 		log.Fatalf("Failed to open a channel: %v", err)
@@ -161,20 +127,20 @@ func main() {
 				if err != nil {
 					return false, nil
 				}
+				// Make sure the first result is actually the user we're looking for
 				return strings.HasSuffix(textContext, message.Recipient), nil
 			}, 10*time.Second); err != nil {
 				log.Printf("Error waiting for search result: %v", err)
 				continue
 			}
-
+			// Click on first result
 			if err := searchResult.Click(); err != nil {
 				log.Printf("Could not click search result: %v", err)
 				continue
 			}
 
-			time.Sleep(1 * time.Second)
-
 			// Wait for chat frame
+			time.Sleep(1 * time.Second)
 			frame, err := wd.FindElement(selenium.ByCSSSelector, "iframe[title='Chat content']")
 			if err != nil {
 				log.Printf("Could not find chat frame: %v", err)
@@ -185,19 +151,18 @@ func main() {
 				continue
 			}
 
+			// Send the message
 			textBox, err := wd.FindElement(selenium.ByCSSSelector, "div[role=textbox]")
 			if err != nil {
 				log.Printf("Could not find message inptu: %v", err)
 				continue
 			}
-			if err = textBox.SendKeys(message.Body); err != nil {
+			if err = textBox.SendKeys(message.Body + selenium.EnterKey); err != nil {
 				log.Printf("Failed to enter message body: %v", err)
 				continue
 			}
-			if err = textBox.SendKeys(selenium.EnterKey); err != nil {
-				log.Printf("Failed to submit message: %v", err)
-				continue
-			}
+
+			// Switch back to top-level frame
 			if err = wd.SwitchFrame(nil); err != nil {
 				log.Printf("Failed to switch frame to top-level: %v", err)
 				continue
